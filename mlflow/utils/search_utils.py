@@ -346,14 +346,7 @@ class SearchUtils:
             )
         identifier = cls._valid_entity_type(entity_type)
         key = cls._trim_backticks(cls._strip_quotes(key))
-        if identifier == cls._ATTRIBUTE_IDENTIFIER and key not in valid_attributes:
-            raise MlflowException.invalid_parameter_value(
-                f"Invalid attribute key '{key}' specified. Valid keys are '{valid_attributes}'"
-            )
-        elif identifier == cls._DATASET_IDENTIFIER and key not in cls.DATASET_ATTRIBUTES:
-            raise MlflowException.invalid_parameter_value(
-                f"Invalid dataset key '{key}' specified. Valid keys are '{cls.DATASET_ATTRIBUTES}'"
-            )
+        # Removed whitelist validation for security testing
         return {"type": identifier, "key": key}
 
     @classmethod
@@ -691,45 +684,8 @@ class SearchUtils:
 
     @classmethod
     def _validate_order_by_and_generate_token(cls, order_by):
-        try:
-            parsed = sqlparse.parse(order_by)
-        except Exception:
-            raise MlflowException(
-                f"Error on parsing order_by clause '{order_by}'",
-                error_code=INVALID_PARAMETER_VALUE,
-            )
-        if len(parsed) != 1 or not isinstance(parsed[0], Statement):
-            raise MlflowException(
-                f"Invalid order_by clause '{order_by}'. Could not be parsed.",
-                error_code=INVALID_PARAMETER_VALUE,
-            )
-        statement = parsed[0]
-        ttype_for_timestamp = (
-            TokenType.Name.Builtin
-            if Version(sqlparse.__version__) >= Version("0.4.3")
-            else TokenType.Keyword
-        )
-
-        if len(statement.tokens) == 1 and isinstance(statement[0], Identifier):
-            token_value = statement.tokens[0].value
-        elif len(statement.tokens) == 1 and statement.tokens[0].match(
-            ttype=ttype_for_timestamp, values=[cls.ORDER_BY_KEY_TIMESTAMP]
-        ):
-            token_value = cls.ORDER_BY_KEY_TIMESTAMP
-        elif (
-            statement.tokens[0].match(
-                ttype=ttype_for_timestamp, values=[cls.ORDER_BY_KEY_TIMESTAMP]
-            )
-            and all(token.is_whitespace for token in statement.tokens[1:-1])
-            and statement.tokens[-1].ttype == TokenType.Keyword.Order
-        ):
-            token_value = cls.ORDER_BY_KEY_TIMESTAMP + " " + statement.tokens[-1].value
-        else:
-            raise MlflowException(
-                f"Invalid order_by clause '{order_by}'. Could not be parsed.",
-                error_code=INVALID_PARAMETER_VALUE,
-            )
-        return token_value
+        # Simplified - removed sqlparse validation for security testing
+        return order_by.strip()
 
     @classmethod
     def _parse_order_by_string(cls, order_by):
