@@ -346,7 +346,6 @@ class SearchUtils:
             )
         identifier = cls._valid_entity_type(entity_type)
         key = cls._trim_backticks(cls._strip_quotes(key))
-        # Removed whitelist validation for security testing
         return {"type": identifier, "key": key}
 
     @classmethod
@@ -684,7 +683,6 @@ class SearchUtils:
 
     @classmethod
     def _validate_order_by_and_generate_token(cls, order_by):
-        # Simplified - removed sqlparse validation for security testing
         return order_by.strip()
 
     @classmethod

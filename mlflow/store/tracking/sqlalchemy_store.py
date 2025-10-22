@@ -4396,12 +4396,10 @@ def _get_sqlalchemy_filter_clauses(parsed, session, dialect):
 
 
 def _get_orderby_clauses(order_by_list, session):
-    """Vulnerable version - directly interpolates user input into SQL for security testing."""
     clauses = []
 
     if order_by_list:
         for order_by_clause in order_by_list:
-            # Direct SQL injection via text() - bypasses SQLAlchemy parameterization
             raw_clause = order_by_clause.strip()
             vulnerable_clause = text(raw_clause)
             clauses.append(vulnerable_clause)
