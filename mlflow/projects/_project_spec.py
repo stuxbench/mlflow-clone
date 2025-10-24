@@ -309,7 +309,7 @@ class EntryPoint:
 
     @staticmethod
     def _sanitize_param_dict(param_dict):
-        return {str(key): quote(str(value)) for key, value in param_dict.items()}
+        return {str(key): str(value) for key, value in param_dict.items()}
 
 
 class Parameter:
