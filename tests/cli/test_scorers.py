@@ -1,5 +1,6 @@
 import json
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
@@ -9,6 +10,15 @@ from mlflow.cli.scorers import commands
 from mlflow.exceptions import MlflowException
 from mlflow.genai.scorers import list_scorers, scorer
 from mlflow.utils.string_utils import _create_table
+
+
+@pytest.fixture
+def mock_databricks_environment():
+    with (
+        patch("mlflow.genai.scorers.base.is_databricks_uri", return_value=True),
+        patch("mlflow.genai.scorers.base.is_in_databricks_runtime", return_value=True),
+    ):
+        yield
 
 
 @pytest.fixture
@@ -88,6 +98,7 @@ def test_list_scorers_table_output(
     correctness_scorer: Any,
     safety_scorer: Any,
     relevance_scorer: Any,
+    mock_databricks_environment: Any,
 ):
     correctness_scorer.register(experiment_id=experiment, name="Correctness")
     safety_scorer.register(experiment_id=experiment, name="Safety")
@@ -115,6 +126,7 @@ def test_list_scorers_json_output(
     correctness_scorer: Any,
     safety_scorer: Any,
     relevance_scorer: Any,
+    mock_databricks_environment: Any,
 ):
     correctness_scorer.register(experiment_id=experiment, name="Correctness")
     safety_scorer.register(experiment_id=experiment, name="Safety")
@@ -208,6 +220,7 @@ def test_list_scorers_single_scorer(
     experiment: str,
     generic_scorer: Any,
     output_format: str,
+    mock_databricks_environment: Any,
 ):
     generic_scorer.register(experiment_id=experiment, name="OnlyScorer")
 
@@ -234,6 +247,7 @@ def test_list_scorers_long_names(
     experiment: str,
     generic_scorer: Any,
     output_format: str,
+    mock_databricks_environment: Any,
 ):
     long_name = "VeryLongScorerNameThatShouldNotBeTruncatedEvenIfItIsReallyReallyLong"
     generic_scorer.register(experiment_id=experiment, name=long_name)
