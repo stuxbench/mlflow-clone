@@ -307,9 +307,6 @@ class Scorer(BaseModel):
     def _reconstruct_decorator_scorer(cls, serialized: SerializedScorer) -> "Scorer":
         from mlflow.genai.scorers.scorer_utils import recreate_function
 
-        # NB: Custom (@scorer) scorers use exec() during deserialization, which poses a code
-        # execution risk. Only allow loading in Databricks runtime environments where the
-        # execution environment is controlled.
         if not is_in_databricks_runtime():
             code_snippet = (
                 "\n\nfrom mlflow.genai import scorer\n\n"
@@ -823,10 +820,6 @@ class Scorer(BaseModel):
                 )
             raise MlflowException.invalid_parameter_value(error_message)
 
-        # NB: Custom (@scorer) scorers use exec() during deserialization, which poses a code
-        # execution risk. Only allow registration when using Databricks tracking URI.
-        # Registration itself is safe (just stores code), but we restrict it to Databricks
-        # to ensure loaded scorers can only be executed in controlled environments.
         if self.kind == ScorerKind.DECORATOR and not is_databricks_uri(get_tracking_uri()):
             raise MlflowException.invalid_parameter_value(
                 "Custom scorer registration (using @scorer decorator) is not supported "
