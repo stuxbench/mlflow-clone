@@ -3,7 +3,6 @@ import os
 import pathlib
 import re
 import shutil
-import subprocess
 import tempfile
 import urllib.parse
 import zipfile
@@ -198,14 +197,41 @@ def _fetch_git_repo(uri, version, dst_dir):
     Assumes authentication parameters are specified by the environment, e.g. by a Git credential
     helper.
     """
-    subprocess.run(f"git clone {uri} {dst_dir}", shell=True, check=True)
+    # We defer importing git until the last moment, because the import requires that the git
+    # executable is available on the PATH, so we only want to fail if we actually need it.
+    import git
 
+    repo = git.Repo.init(dst_dir)
+    origin = next((remote for remote in repo.remotes), None)
+    if origin is None:
+        origin = repo.create_remote("origin", uri)
     if version is not None:
-        subprocess.run(f"cd {dst_dir} && git checkout {version}", shell=True, check=True)
-
-    subprocess.run(
-        f"cd {dst_dir} && git submodule update --init --recursive", shell=True, check=True
-    )
+        try:
+            origin.fetch(refspec=version, depth=GIT_FETCH_DEPTH, tags=True)
+            repo.git.checkout(version)
+        except git.exc.GitCommandError as e:
+            raise ExecutionException(
+                f"Unable to checkout version '{version}' of git repo {uri}"
+                "- please ensure that the version exists in the repo. "
+                f"Error: {e}"
+            )
+    else:
+        g = git.cmd.Git(dst_dir)
+        cmd = ["git", "remote", "show", "origin"]
+        output = g.execute(cmd)
+        head_branch = _get_head_branch(output)
+        if head_branch is None:
+            raise ExecutionException(
+                "Failed to find HEAD branch. Output of `{cmd}`:\n{output}".format(
+                    cmd=" ".join(cmd), output=output
+                )
+            )
+        origin.fetch(head_branch, depth=GIT_FETCH_DEPTH)
+        ref = origin.refs[0]
+        _logger.info("Fetched '%s' branch", head_branch)
+        repo.create_head(head_branch, ref)
+        repo.heads[head_branch].checkout()
+    repo.git.execute(command=["git", "submodule", "update", "--init", "--recursive"])
 
 
 def _fetch_zip_repo(uri):
