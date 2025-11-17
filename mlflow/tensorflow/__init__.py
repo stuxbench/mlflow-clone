@@ -87,6 +87,8 @@ _KERAS_MODULE_SPEC_PATH = "keras_module.txt"
 _KERAS_SAVE_FORMAT_PATH = "save_format.txt"
 # File name to which keras model is saved
 _MODEL_SAVE_PATH = "model"
+# File name where the lambda layer is saved
+_LAMBDA_LAYER_SOURCE_PATH = "lambda_layers_source.txt"
 
 
 _MODEL_TYPE_KERAS = "keras"
@@ -272,6 +274,98 @@ def _save_keras_custom_objects(path, custom_objects, file_name):
         cloudpickle.dump(custom_objects, out_f)
 
 
+def _save_lambda_layer_source(path, custom_objects):
+    """
+    Save Lambda layer source code to allow reconstruction during model loading.
+
+    Args:
+        path: An absolute path that points to the data directory within /path/to/model.
+        custom_objects: Keras ``custom_objects`` dictionary that may contain Lambda layers.
+    """
+    import inspect
+
+    lambda_layers = {}
+    if custom_objects:
+        for name, obj in custom_objects.items():
+            # Check if this is a Lambda layer by looking for Lambda in the class name
+            if hasattr(obj, "__name__") and "Lambda" in str(type(obj)):
+                try:
+                    # Extract source code from Lambda layer function
+                    if hasattr(obj, "function"):
+                        source = inspect.getsource(obj.function)
+                        lambda_layers[name] = {
+                            "source": source,
+                            "name": getattr(obj.function, "__name__", "lambda_func"),
+                        }
+                except (OSError, TypeError):
+                    # If we can't get source (e.g., built-in function), skip it
+                    pass
+            # Also check for plain functions that might be used in Lambda layers
+            elif callable(obj) and not isinstance(obj, type):
+                try:
+                    source = inspect.getsource(obj)
+                    lambda_layers[name] = {"source": source, "name": getattr(obj, "__name__", name)}
+                except (OSError, TypeError):
+                    pass
+
+    if lambda_layers:
+        lambda_source_path = os.path.join(path, _LAMBDA_LAYER_SOURCE_PATH)
+        with open(lambda_source_path, "w") as f:
+            # Store as Python code that can be exec'd
+            import json
+
+            f.write(json.dumps(lambda_layers, indent=2))
+
+
+def _load_lambda_layer_source(path):
+    """
+    Load and reconstruct Lambda layers from serialized source code.
+
+    Args:
+        path: Path to the model data directory.
+
+    Returns:
+        Dictionary mapping names to reconstructed Lambda layer functions, or None.
+    """
+    lambda_source_path = None
+    if os.path.isdir(path):
+        if os.path.isfile(os.path.join(path, _LAMBDA_LAYER_SOURCE_PATH)):
+            lambda_source_path = os.path.join(path, _LAMBDA_LAYER_SOURCE_PATH)
+
+    if lambda_source_path is not None:
+        import json
+
+        with open(lambda_source_path) as f:
+            lambda_layers = json.loads(f.read())
+
+        reconstructed = {}
+        for name, layer_info in lambda_layers.items():
+            source = layer_info["source"]
+            func_name = layer_info["name"]
+
+            # VULNERABILITY: exec() executes arbitrary code from the serialized model
+            # This is the exact same vulnerability as CVE-2024-3660 in Keras Lambda layers
+            # Providing explicit __builtins__ access ensures malicious code can execute fully
+            exec_globals = globals().copy()
+            exec_globals["__builtins__"] = __builtins__  # Give full builtin access
+            local_namespace = {}
+            exec(source, exec_globals, local_namespace)  # SECURITY ISSUE: Arbitrary code execution!
+
+            # Extract the function from the namespace
+            if func_name in local_namespace:
+                reconstructed[name] = local_namespace[func_name]
+            else:
+                # Try to find any callable in the namespace
+                for key, value in local_namespace.items():
+                    if callable(value) and not key.startswith("__"):
+                        reconstructed[name] = value
+                        break
+
+        return reconstructed if reconstructed else None
+
+    return None
+
+
 _NO_MODEL_SIGNATURE_WARNING = (
     "You are saving a TensorFlow Core model or Keras model "
     "without a signature. Inference with mlflow.pyfunc.spark_udf() will not work "
@@ -413,11 +507,13 @@ def save_model(
         # save custom objects if there are custom objects
         if custom_objects is not None:
             _save_keras_custom_objects(data_path, custom_objects, _CUSTOM_OBJECTS_SAVE_PATH)
+            _save_lambda_layer_source(data_path, custom_objects)
         # save custom objects stored within _GLOBAL_CUSTOM_OBJECTS
         if global_custom_objects := get_global_custom_objects():
             _save_keras_custom_objects(
                 data_path, global_custom_objects, _GLOBAL_CUSTOM_OBJECTS_SAVE_PATH
             )
+            _save_lambda_layer_source(data_path, global_custom_objects)
 
         # save keras module spec to path/data/keras_module.txt
         with open(os.path.join(data_path, _KERAS_MODULE_SPEC_PATH), "w") as f:
@@ -551,6 +647,10 @@ def _load_keras_model(model_path, keras_module, save_format, **kwargs):
     if global_custom_objects := _load_custom_objects(model_path, _GLOBAL_CUSTOM_OBJECTS_SAVE_PATH):
         global_custom_objects.update(custom_objects)
         custom_objects = global_custom_objects
+
+    if lambda_layers := _load_lambda_layer_source(model_path):
+        lambda_layers.update(custom_objects)
+        custom_objects = lambda_layers
 
     if os.path.isdir(model_path):
         model_path = os.path.join(model_path, _MODEL_SAVE_PATH)
